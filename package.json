@@ -12,12 +12,20 @@
     "supervisor",
     "zero-downtime"
   ],
-  "author": "Joshua Paylaga",
+  "author": {
+    "name": "Joshua Paylaga",
+    "email": "joshuapaylaga@gmail.com",
+    "url": "https://github.com/jpaylaga"
+  },
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jpaylaga/laravel-fleet.git"
+  },
+  "homepage": "https://github.com/jpaylaga/laravel-fleet#readme",
+  "bugs": {
+    "url": "https://github.com/jpaylaga/laravel-fleet/issues"
   },
   "bin": {
     "fleet": "dist/cli.js"
