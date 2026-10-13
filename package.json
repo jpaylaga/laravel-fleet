@@ -1,0 +1,53 @@
+{
+  "name": "laravel-fleet",
+  "version": "0.1.0",
+  "description": "Zero-SSH, stage-by-stage Laravel deploys to EC2 fleets via AWS SSM Run Command, with automatic rollback.",
+  "keywords": [
+    "laravel",
+    "deploy",
+    "aws",
+    "ssm",
+    "ec2",
+    "php-fpm",
+    "supervisor",
+    "zero-downtime"
+  ],
+  "author": "Joshua Paylaga",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jpaylaga/laravel-fleet.git"
+  },
+  "bin": {
+    "fleet": "dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "examples",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ssm": "^3.1150.0",
+    "commander": "^15.0.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
+  }
+}

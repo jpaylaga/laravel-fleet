@@ -1,0 +1,27 @@
+{
+  "region": "us-west-2",
+  "app": {
+    "path": "/var/www/app",
+    "user": "www-data",
+    "php": "php",
+    "composer": "composer",
+    "fpmService": "php8.3-fpm",
+    "workers": ["app-worker:*", "app-scheduler"],
+    "migrate": true,
+    "caches": ["config", "route", "view", "event"]
+  },
+  "maintenance": { "retryAfter": 15 },
+  "smoke": {
+    "url": "http://127.0.0.1/up",
+    "host": "app.example.com",
+    "expectStatus": 200,
+    "timeoutSeconds": 10
+  },
+  "concurrency": 2,
+  "commandTimeoutSeconds": 900,
+  "targets": [
+    { "name": "tenant-a", "instanceId": "i-0123456789abcdef0", "canary": true },
+    { "name": "tenant-b", "instanceId": "i-0123456789abcdef1" },
+    { "name": "tenant-c", "instanceId": "i-0123456789abcdef2", "region": "ap-southeast-1" }
+  ]
+}
