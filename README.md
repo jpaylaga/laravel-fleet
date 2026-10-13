@@ -79,22 +79,135 @@ Stage-by-stage Laravel deploys to EC2 hosts over **AWS SSM Run Command**: no SSH
 - **Next:** remaining canaries, one at a time
 - **Then:** everyone else, `concurrency` hosts per wave
 
-## Usage
+## Getting started
+
+**1. Prepare each host** (full list in [`docs/server-checklist.md`](docs/server-checklist.md))
+- SSM agent running, plus an instance profile with `AmazonSSMManagedInstanceCore`.
+- The app checked out with git at the same path on every host, owned by the app user.
+- `.fleet/` added to the app's `.gitignore`.
+
+**2. Grant deploy access**
+- Attach [`docs/iam-policy.json`](docs/iam-policy.json) to whoever runs `fleet` (a person or a CI role).
+- Tag each instance `laravel-fleet=true`, which is what that policy allows.
+
+**3. Install and create the config**
 
 ```bash
-npm install -g laravel-fleet    # Node.js 22.12+, AWS credentials via any SDK method
-
-fleet init                      # writes fleet.config.json
-fleet plan v2.4.0               # print every script; touches nothing
-fleet deploy v2.4.0             # confirm, then deploy (--yes in CI)
-fleet deploy main -t tenant-b   # only some targets
-fleet rollback -t tenant-b      # previous release
-fleet exec php artisan about    # ad hoc command on every target
+npm install -g laravel-fleet    # Node.js 22.12+
+fleet init                      # writes fleet.config.json in the current folder
 ```
 
-- **Config:** see [`examples/fleet.config.json`](examples/fleet.config.json); schema and defaults in [`src/config/configSchema.ts`](src/config/configSchema.ts).
-- **Host requirements:** [`docs/server-checklist.md`](docs/server-checklist.md).
-- **IAM:** least-privilege policy in [`docs/iam-policy.json`](docs/iam-policy.json).
+## Config
+
+`fleet.config.json`, usually committed next to the app (or kept in an ops repo):
+
+```jsonc
+{
+  "region": "ap-southeast-1",
+  "app": {
+    "path": "/var/www/app",
+    "user": "www-data",
+    "fpmService": "php8.1-fpm",
+    "workers": ["app-worker:*", "app-scheduler"]
+  },
+  "smoke": { "url": "http://127.0.0.1/health", "host": "app.example.com" },
+  "concurrency": 2,
+  "targets": [
+    { "name": "tenant-a", "instanceId": "i-0123456789abcdef0", "canary": true },
+    { "name": "tenant-b", "instanceId": "i-0123456789abcdef1" },
+    { "name": "tenant-c", "instanceId": "i-0123456789abcdef2" }
+  ]
+}
+```
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `region` | required | AWS region for targets without their own `region` |
+| `app.path` | required | App directory on every host; each script runs `cd` there |
+| `app.user` | `www-data` | User for git, PHP and Composer |
+| `app.php` / `app.composer` | `php` / `composer` | Binaries on the host |
+| `app.fpmService` | required | systemd unit to reload, e.g. `php8.1-fpm` |
+| `app.workers` | `[]` | Supervisor programs to stop and start; `name:*` for groups |
+| `app.migrate` | `true` | Run `migrate --force` on the first host |
+| `app.caches` | all four | Which of `config`, `route`, `view`, `event` to rebuild |
+| `maintenance.retryAfter` | `15` | `Retry-After` seconds while down |
+| `smoke.url` | none | Health URL checked through the maintenance bypass; omit to skip |
+| `smoke.host` | none | `Host` header, for nginx vhosts reached via `127.0.0.1` |
+| `smoke.expectStatus` | `200` | Expected HTTP status |
+| `concurrency` | `1` | Hosts per wave after the first host and canaries |
+| `commandTimeoutSeconds` | `900` | Per-stage timeout |
+| `targets[].name` | required | Label used in output and `-t` |
+| `targets[].instanceId` | required | EC2 instance ID (no hostnames, no SSH) |
+| `targets[].region` | `region` | Per-target override |
+| `targets[].canary` | `false` | Deploy before the others, one at a time |
+
+## Commands
+
+```bash
+fleet plan <ref>                # print every script; touches nothing
+fleet deploy <ref> [--yes]      # deploy a branch, tag or SHA
+fleet rollback [--yes]          # back to each host's previous release
+fleet exec -- <command...>      # ad hoc command in app.path on every target
+```
+
+- `-c <path>`: another config file (default `fleet.config.json`).
+- `-t a,b`: only these targets.
+- `--` before an `exec` command that has its own flags (`-n`, `--force`).
+
+## Use case: shipping a release to three tenants
+
+**Setup:** the config above. Three tenants, each on its own EC2 host, `tenant-a` as the canary.
+
+**1. Review what will run**
+
+```bash
+fleet plan v2.4.0 -t tenant-a
+```
+
+**2. Deploy**
+
+```console
+$ fleet deploy v2.4.0
+Deploy v2.4.0 to tenant-a, tenant-b, tenant-c? [y/N] y
+[tenant-a] ✓ preflight (2.1s)
+[tenant-a] ✓ maintenance-on (1.8s)
+...
+[tenant-a] ✓ migrate (4.4s)
+...
+[tenant-a] ✗ smoke (1.5s)
+smoke check failed: http://127.0.0.1/health returned 500
+[tenant-a] ↺ rollback
+[tenant-a] ✓ rollback (19.2s)
+rolled back to 3f9c2e1 (was 8a41d07)
+halted: tenant-a rolled-back at smoke; remaining hosts were not touched
+```
+
+- Only `tenant-a` was ever down, and only while in maintenance mode.
+- `tenant-b` and `tenant-c` never left the previous release.
+- The migration stays applied, so the fix must work with the new schema.
+
+**3. Fix, tag, and deploy again**
+
+```console
+$ fleet deploy v2.4.1 --yes
+...
+┌─────────┬────────────┬────────────┐
+│ (index) │ target     │ status     │
+├─────────┼────────────┼────────────┤
+│ 0       │ 'tenant-a' │ 'deployed' │
+│ 1       │ 'tenant-b' │ 'deployed' │
+│ 2       │ 'tenant-c' │ 'deployed' │
+└─────────┴────────────┴────────────┘
+```
+
+- Order: `tenant-a` alone (migrates), then `tenant-b` and `tenant-c` together (`concurrency: 2`).
+
+**4. Later, one tenant reports a problem**
+
+```bash
+fleet exec -t tenant-b -- tail -n 50 storage/logs/laravel.log
+fleet rollback -t tenant-b
+```
 
 ## Where to run it
 

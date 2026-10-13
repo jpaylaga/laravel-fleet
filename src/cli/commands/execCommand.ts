@@ -7,7 +7,7 @@ import resolveContext from '../resolveContext.js';
 export default function execCommand(): Command {
   return new Command('exec')
     .argument('<command...>', 'shell command to run')
-    .description('run a shell command in the app directory on every target')
+    .description('run a shell command in the app directory on every target (put it after --)')
     .action(async (words: string[], _opts: unknown, command: Command) => {
       const { config, targets } = await resolveContext(command);
       const results = await execAll(
